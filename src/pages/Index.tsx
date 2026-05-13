@@ -1,6 +1,24 @@
 import { useState, useRef, useEffect } from "react";
 import Icon from "@/components/ui/icon";
 
+declare global {
+  interface Window {
+    Telegram?: {
+      WebApp?: {
+        ready: () => void;
+        expand: () => void;
+        initDataUnsafe?: { user?: { first_name?: string; username?: string } };
+        colorScheme?: string;
+        close: () => void;
+        MainButton: { setText: (t: string) => void; show: () => void; hide: () => void };
+      };
+    };
+  }
+}
+
+const WEBHOOK_URL = "https://functions.poehali.dev/e50920df-f4f3-47f3-a9e5-1527f4e77f61";
+const SETUP_URL = "https://functions.poehali.dev/91679f6e-fc87-4193-ac05-dc57dec6c884";
+
 type Section = "chat" | "help" | "status" | "about" | "settings" | "history" | "feedback";
 
 interface Message {
@@ -58,12 +76,57 @@ export default function Index() {
   const [groupMode, setGroupMode] = useState(false);
   const [botName, setBotName] = useState("Юра");
   const [autoScroll, setAutoScroll] = useState(true);
+  const [tgUser, setTgUser] = useState<{ name: string; username: string } | null>(null);
+  const [setupStatus, setSetupStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [setupLog, setSetupLog] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Инициализация Telegram Web App
+  useEffect(() => {
+    const tg = window.Telegram?.WebApp;
+    if (tg) {
+      tg.ready();
+      tg.expand();
+      const user = tg.initDataUnsafe?.user;
+      if (user) {
+        setTgUser({ name: user.first_name || "Пользователь", username: user.username || "" });
+        setMessages([{
+          id: 1, role: "bot",
+          text: `Привет, ${user.first_name || "друг"}! Я Юра — твой ИИ-ассистент 🤖\n\nПросто напиши мне вопрос!`,
+          time: formatTime()
+        }]);
+      }
+    }
+  }, []);
 
   useEffect(() => {
     if (autoScroll) messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading, autoScroll]);
+
+  const runSetup = async () => {
+    setSetupStatus("loading");
+    setSetupLog("Подключаю webhook...");
+    try {
+      const appUrl = window.location.origin;
+      const res = await fetch(SETUP_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ webhook_url: WEBHOOK_URL, webapp_url: appUrl }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setSetupStatus("done");
+        setSetupLog("✅ Webhook зарегистрирован!\n✅ Кнопка мини-приложения установлена!\n✅ Команды бота обновлены!");
+      } else {
+        setSetupStatus("error");
+        setSetupLog("Ошибка: " + JSON.stringify(data));
+      }
+    } catch (e) {
+      setSetupStatus("error");
+      setSetupLog("Ошибка соединения: " + String(e));
+    }
+  };
 
   const sendMessage = async (text?: string) => {
     const raw = (text ?? input).trim();
@@ -170,7 +233,15 @@ export default function Index() {
               ГРУППА
             </span>
           )}
-          <span className="text-xs opacity-40 font-oswald">@iris_cm_botat</span>
+          {tgUser ? (
+            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded"
+              style={{ background: "rgba(0,255,204,0.08)", border: "1px solid rgba(0,255,204,0.2)" }}>
+              <span className="text-xs neon-text font-oswald">TG</span>
+              <span className="text-xs opacity-70">{tgUser.name}</span>
+            </div>
+          ) : (
+            <span className="text-xs opacity-40 font-oswald">@iris_cm_botat</span>
+          )}
         </div>
       </header>
 
@@ -688,6 +759,31 @@ export default function Index() {
                   </button>
                 </div>
               </div>
+            </div>
+
+            {/* Telegram Setup */}
+            <div className="cyber-card rounded-xl p-4 neon-border-purple border">
+              <h3 className="font-oswald tracking-wide mb-1 text-sm" style={{ color: "var(--neon-purple)" }}>
+                TELEGRAM ИНТЕГРАЦИЯ
+              </h3>
+              <p className="text-xs opacity-50 mb-3">Зарегистрировать webhook и подключить мини-приложение</p>
+              <div className="text-xs mb-3 space-y-1 opacity-60">
+                <div>Webhook URL: <code className="neon-text text-xs">{WEBHOOK_URL.slice(0, 40)}...</code></div>
+                <div>Mini App: <code className="neon-text text-xs">{window.location.origin}</code></div>
+              </div>
+              {setupLog && (
+                <pre className="text-xs p-3 rounded-lg mb-3 whitespace-pre-wrap leading-relaxed"
+                  style={{ background: "rgba(0,255,204,0.05)", border: "1px solid rgba(0,255,204,0.15)", color: setupStatus === "error" ? "#ff6b6b" : "var(--neon-cyan)" }}>
+                  {setupLog}
+                </pre>
+              )}
+              <button onClick={runSetup} disabled={setupStatus === "loading"}
+                className="cyber-btn-purple cyber-btn w-full py-2.5 rounded-lg text-sm disabled:opacity-40">
+                <span className="flex items-center justify-center gap-2">
+                  <Icon name={setupStatus === "done" ? "CheckCircle" : "Zap"} size={14} />
+                  {setupStatus === "loading" ? "Подключаю..." : setupStatus === "done" ? "Подключено!" : "Подключить к Telegram"}
+                </span>
+              </button>
             </div>
 
             <div className="cyber-card rounded-xl p-4 text-xs opacity-40 text-center">
